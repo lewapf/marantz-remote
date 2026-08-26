@@ -5,9 +5,8 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Bar icon + popup, same shape as PiloTV's panel (see ~/projects/pilotv-omarchy):
-// a Panel base for the bar button + KeyboardPanel popup, all protocol logic
-// in the sibling Amp item, this file is presentation only.
+// Bar icon + popup: a Panel base for the bar button + KeyboardPanel popup,
+// all protocol logic in the sibling Amp item, this file is presentation only.
 Panel {
   id: root
   moduleName: "marantz-remote"
@@ -328,8 +327,7 @@ Panel {
             anchors.top: parent.top
             spacing: Style.space(10)
 
-          // ---------- Hero: compact icon + status line, same shape as
-          // PiloTV's hero (see ~/projects/pilotv-omarchy). Volume/mute/input
+          // ---------- Hero: compact icon + status line. Volume/mute/input
           // state shows inline in statusText() and via selected buttons
           // below instead of a separate stat block.
           Item {
@@ -454,8 +452,7 @@ Panel {
 
             // Button.qml has no elide/wrap of its own — a long SSDP SERVER
             // string would render past the button's fixed width instead of
-            // stopping at it (learned the hard way on PiloTV's discovered
-            // list), so truncate before it ever gets there.
+            // stopping at it, so truncate before it ever gets there.
             Column {
               width: parent.width
               spacing: Style.space(4)

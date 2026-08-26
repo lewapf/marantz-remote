@@ -38,8 +38,9 @@ the receiver over a plain TCP socket on your local network.
 
 ## Installation
 
-```
-omarchy plugin add https://github.com/<your-username>/marantz-remote.git --enable
+```bash
+omarchy plugin add https://github.com/lewapf/marantz-remote.git
+omarchy plugin enable io.github.lewapf.marantz-remote
 ```
 
 Or from **Setup › Plugins** in Omarchy, choose **Add**, and paste the repo
@@ -48,6 +49,23 @@ URL.
 Plugins run as unsandboxed code inside `omarchy-shell` — review the source
 before enabling anything you add. Omarchy clones it disabled by default so
 you can look it over first.
+
+## Update
+
+```bash
+omarchy plugin update io.github.lewapf.marantz-remote
+```
+
+## Remove
+
+```bash
+omarchy plugin disable io.github.lewapf.marantz-remote   # takes it off the bar
+omarchy plugin remove io.github.lewapf.marantz-remote    # deletes the plugin checkout
+```
+
+Removal deletes `~/.config/omarchy/plugins/io.github.lewapf.marantz-remote/`.
+The last-connected IP lives outside the plugin checkout, under
+`~/.config/marantz-remote/`, and survives a remove/reinstall.
 
 ## Usage
 
@@ -84,6 +102,13 @@ over.
   reports back over the socket; power-cycling the receiver's network
   connection (unplug/replug, or toggle network standby) usually resolves a
   stuck session.
+
+## Development
+
+```bash
+omarchy plugin validate "$HOME/.config/omarchy/plugins/io.github.lewapf.marantz-remote"
+qmllint -I "$OMARCHY_PATH/shell" Panel.qml Amp.qml
+```
 
 ## License
 

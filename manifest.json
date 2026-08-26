@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "marantz-remote",
+  "id": "io.github.lewapf.marantz-remote",
   "name": "Marantz Remote",
   "version": "0.1.0",
   "author": "Pawel Furman",

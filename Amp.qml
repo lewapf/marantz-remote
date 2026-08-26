@@ -7,8 +7,7 @@ import Quickshell.Io
 // No pairing, no cert — just a socket. Quickshell has no raw TCP socket
 // type of its own (Quickshell.Io's Socket is a QLocalSocket, i.e. Unix
 // sockets), so the connection itself is held open by a small bash process
-// using bash's built-in /dev/tcp/<host>/<port> redirection — no npm
-// dependency needed, unlike PiloTV's sidecar.
+// using bash's built-in /dev/tcp/<host>/<port> redirection.
 Item {
   id: root
   visible: false
