@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "marantz-remote",
+  "name": "Marantz Remote",
+  "version": "0.1.0",
+  "author": "Pawel Furman",
+  "license": "MIT",
+  "description": "Power, volume, mute, and input select for a Denon/Marantz AV receiver over its IP control protocol.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Marantz Remote",
+    "description": "Bar icon + popup for controlling a Denon/Marantz receiver on the local network.",
+    "category": "Utilities",
+    "aliases": ["marantz", "amp", "receiver"],
+    "allowMultiple": false,
+    "defaults": {
+      "lastIp": ""
+    }
+  }
+}
