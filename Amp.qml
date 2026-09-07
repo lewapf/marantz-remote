@@ -99,23 +99,53 @@ Item {
     lastIpFile.setText(value + "\n")
   }
 
-  // Reads socket bytes as CR-terminated lines (the receiver's own framing)
-  // and re-emits them CRLF-normalized to LF so SplitParser sees one status
-  // line per read; writes go back the other way with CR appended, which is
-  // what the receiver expects on its end.
+  // Reads socket bytes one at a time, framing on CR (the receiver's own
+  // framing) and re-emitting LF-terminated lines so SplitParser sees one
+  // status line per read; writes go back the other way with CR appended,
+  // which is what the receiver expects on its end.
   //
-  // `stdbuf -oL` on tr is load-bearing: tr fully block-buffers its stdout
-  // once it's a pipe (not a tty), so a single small status reply like
-  // "PWON\n" sits in tr's internal buffer instead of reaching Quickshell —
-  // power/mute/input silently never update until enough traffic
-  // accumulates to cross the block size by coincidence.
+  // Hardening against a hung or misbehaving peer (unreachable host, a
+  // device that accepts the TCP connection but never talks, or one that
+  // streams a line that never ends): a watchdog kills the connect attempt
+  // after CONNECT_TIMEOUT; the byte-reader's `read -t IO_TIMEOUT` bounds
+  // how long any single read may block and doubles as the frame's max
+  // length check via MAX_LINE, so a stalled or oversized frame ends the
+  // reader loop and it signals the whole script to exit (closing fd 3)
+  // rather than leaving a zombie connection Quickshell never learns about;
+  // writes get the same IO_TIMEOUT via `timeout`, in case the socket send
+  // buffer is stuck.
   readonly property string _connectScript: [
-    'exec 3<>"/dev/tcp/$1/23" || { echo ERR_CONNECT; exit 1; }',
+    'CONNECT_TIMEOUT=8',
+    'IO_TIMEOUT=300',
+    'MAX_LINE=1024',
+    'printf -v CR "\\r"',
+    'trap \'echo ERR_CONNECT; exit 1\' TERM',
+    '( sleep "$CONNECT_TIMEOUT"; kill -TERM $$ 2>/dev/null ) &',
+    'WATCHDOG=$!',
+    'exec 3<>"/dev/tcp/$1/23" || { kill $WATCHDOG 2>/dev/null; echo ERR_CONNECT; exit 1; }',
+    'kill $WATCHDOG 2>/dev/null',
+    'trap - TERM',
     'echo CONNECTED',
-    '(stdbuf -oL cat <&3 | stdbuf -oL tr "\\r" "\\n") &',
+    '(',
+    '  buf=""',
+    '  while IFS= read -r -t "$IO_TIMEOUT" -N 1 ch <&3; do',
+    '    if [ "$ch" = "$CR" ]; then',
+    '      printf "%s\\n" "$buf"',
+    '      buf=""',
+    '    else',
+    '      buf="$buf$ch"',
+    '      if [ ${#buf} -gt "$MAX_LINE" ]; then',
+    '        break',
+    '      fi',
+    '    fi',
+    '  done',
+    '  kill -TERM $$ 2>/dev/null',
+    ') &',
     'CATPID=$!',
     'trap \'kill $CATPID 2>/dev/null\' EXIT',
-    'while IFS= read -r line; do printf "%s\\r" "$line" >&3; done',
+    'while IFS= read -r line; do',
+    '  timeout "$IO_TIMEOUT" bash -c \'printf "%s\\r" "$1" >&3\' -- "$line" || break',
+    'done',
     'kill $CATPID 2>/dev/null'
   ].join('\n')
 
