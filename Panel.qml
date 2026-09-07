@@ -86,6 +86,7 @@ Panel {
     rows.push(["z2-toggle"])
     if (root.zone2Expanded) {
       rows.push(["z2power", "z2voldown", "z2mute", "z2volup"])
+      rows.push(["z2-link"])
       rows.push(["z2-tv", "z2-cd", "z2-game", "z2-net"])
       rows.push(["z2-phono", "z2-bt", "z2-tuner"])
     }
@@ -203,6 +204,7 @@ Panel {
       case "z2-toggle": root.zone2Expanded = !root.zone2Expanded; break
       case "settings-toggle": root.settingsExpanded = !root.settingsExpanded; break
       case "z2power": amp.toggleZone2Power(); break
+      case "z2-link": amp.setZone2Linked(!amp.zone2Linked); break
       case "z2voldown": amp.zone2VolumeDown(); break
       case "z2mute": amp.toggleZone2Mute(); break
       case "z2volup": amp.zone2VolumeUp(); break
@@ -685,6 +687,11 @@ Panel {
                 RemoteButton { width: controls.colWidth; text: "MUTE"; selected: amp.zone2Muted; hasCursor: root.hasCursor("z2mute"); onClicked: amp.toggleZone2Mute() }
                 RemoteButton { width: controls.colWidth; text: "VOL+"; hasCursor: root.hasCursor("z2volup"); onClicked: amp.zone2VolumeUp() }
               }
+
+              // Off by default: keeps Zone2 down when main power toggles
+              // (see Amp.qml togglePower()). On lets Zone2 follow main
+              // power the way the receiver's own firmware wants to.
+              RemoteButton { width: parent.width; text: "LINK TO MAIN PWR"; selected: amp.zone2Linked; hasCursor: root.hasCursor("z2-link"); onClicked: amp.setZone2Linked(!amp.zone2Linked) }
 
               Grid {
                 width: parent.width

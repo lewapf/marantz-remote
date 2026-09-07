@@ -64,8 +64,8 @@ omarchy plugin remove io.github.lewapf.marantz-remote    # deletes the plugin ch
 ```
 
 Removal deletes `~/.config/omarchy/plugins/io.github.lewapf.marantz-remote/`.
-The last-connected IP lives outside the plugin checkout, under
-`~/.config/marantz-remote/`, and survives a remove/reinstall.
+The last-connected IP and the Zone2 link setting live outside the plugin
+checkout, under `~/.config/marantz-remote/`, and survive a remove/reinstall.
 
 ## Usage
 

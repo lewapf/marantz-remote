@@ -80,6 +80,13 @@ Item {
   property int _retriesLeft: 0
   readonly property int _maxRetries: 3
 
+  // Whether Zone2 should follow main power. Off by default: most units
+  // aren't actually wired up to a second zone, and the receiver's own
+  // firmware auto-links Zone2 to main power internally regardless of what
+  // IP-control commands say — see togglePower() below. On means "leave
+  // Zone2 alone", off means "actively fight the receiver's auto-link".
+  property bool zone2Linked: false
+
   FileView {
     id: lastIpFile
     path: root.home + "/.config/marantz-remote/last-ip"
@@ -97,6 +104,21 @@ Item {
   function rememberIp(value) {
     root.lastIp = value
     lastIpFile.setText(value + "\n")
+  }
+
+  FileView {
+    id: zone2LinkedFile
+    path: root.home + "/.config/marantz-remote/zone2-linked"
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      root.zone2Linked = text().trim() === "1"
+    }
+  }
+
+  function setZone2Linked(value) {
+    root.zone2Linked = value
+    zone2LinkedFile.setText((value ? "1" : "0") + "\n")
   }
 
   // Reads socket bytes one at a time, framing on CR (the receiver's own
@@ -411,14 +433,22 @@ Item {
 
   // Some receivers auto-link Zone2 to main power internally (a firmware/menu
   // setting outside IP-control's reach), so a bare PWON can bring Zone2 up
-  // even though this app never sent Z2ON. Guard against that: after turning
-  // main power on, explicitly re-assert whatever Zone2's state was right
-  // before the toggle, so an off Zone2 stays off.
+  // even though this app never sent Z2ON. Guard against that — unless
+  // zone2Linked opts back into following main power — by re-asserting
+  // Zone2 off a beat after turning main power on. The delay matters: this
+  // receiver ignores commands sent in the instant it leaves standby, so an
+  // immediate Z2OFF right after PWON gets silently dropped.
   function togglePower() {
     var turningOn = !root.power
     var zone2WasOn = root.zone2Power
     sendCmd(turningOn ? "PWON" : "PWSTANDBY")
-    if (turningOn && !zone2WasOn) sendCmd("Z2OFF")
+    if (turningOn && !zone2WasOn && !root.zone2Linked) zone2OffGuardTimer.start()
+  }
+
+  Timer {
+    id: zone2OffGuardTimer
+    interval: 500
+    onTriggered: root.sendCmd("Z2OFF")
   }
 
   function toggleMute() {
