@@ -691,7 +691,29 @@ Panel {
               // Off by default: keeps Zone2 down when main power toggles
               // (see Amp.qml togglePower()). On lets Zone2 follow main
               // power the way the receiver's own firmware wants to.
-              RemoteButton { width: parent.width; text: "LINK TO MAIN PWR"; selected: amp.zone2Linked; hasCursor: root.hasCursor("z2-link"); onClicked: amp.setZone2Linked(!amp.zone2Linked) }
+              Item {
+                width: parent.width
+                height: z2LinkSwitch.implicitHeight
+
+                Text {
+                  text: "LINK TO MAIN PWR"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                ToggleSwitch {
+                  id: z2LinkSwitch
+                  checked: amp.zone2Linked
+                  foreground: root.bar.foreground
+                  hasCursor: root.hasCursor("z2-link")
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  onToggled: amp.setZone2Linked(!amp.zone2Linked)
+                }
+              }
 
               Grid {
                 width: parent.width
