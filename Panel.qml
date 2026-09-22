@@ -446,6 +446,7 @@ Panel {
               visible: amp.phase === "error"
               width: parent.width
               text: amp.errorMessage
+              textFormat: Text.PlainText
               color: "#e06c75"
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.bodySmall

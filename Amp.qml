@@ -87,6 +87,15 @@ Item {
   // Zone2 alone", off means "actively fight the receiver's auto-link".
   property bool zone2Linked: false
 
+  // Known Zone2 input codes (mirrors the buttons selectZone2Input() is
+  // called with) — an unrecognized "Z2<code>" report is left alone rather
+  // than overwriting zone2Input with a value no button will ever match.
+  readonly property var _zone2InputCodes: ["TV", "CD", "GAME", "NET", "PHONO", "BT", "TUNER"]
+
+  // Cap on discovered.length — bounds memory/UI growth against a flood of
+  // spoofed SSDP replies from distinct source IPs during one scan.
+  readonly property int _maxDiscovered: 20
+
   FileView {
     id: lastIpFile
     path: root.home + "/.config/marantz-remote/last-ip"
@@ -286,6 +295,7 @@ Item {
     stdout: SplitParser {
       onRead: function(line) {
         if (line.indexOf("FOUND ") === 0) {
+          if (root.discovered.length >= root._maxDiscovered) return
           var rest = line.substring(6)
           var sp = rest.indexOf(" ")
           var ip = sp > 0 ? rest.substring(0, sp) : rest
@@ -394,7 +404,7 @@ Item {
         root.zone2Volume = z2rest.length > 2
           ? parseInt(z2rest.substring(0, 2), 10) + (z2rest.charAt(2) === "5" ? 0.5 : 0)
           : parseInt(z2rest, 10)
-      } else {
+      } else if (root._zone2InputCodes.indexOf(z2rest) >= 0) {
         root.zone2Input = z2rest
       }
     }
@@ -442,6 +452,11 @@ Item {
     var turningOn = !root.power
     var zone2WasOn = root.zone2Power
     sendCmd(turningOn ? "PWON" : "PWSTANDBY")
+    // Cancel any guard armed by an earlier toggle before (maybe) arming a
+    // fresh one — otherwise a rapid on/off/on within the 500ms window fires
+    // a stale Z2OFF based on the first toggle's now-outdated state, or a
+    // start() on an already-running timer is a no-op and never rearms.
+    zone2OffGuardTimer.stop()
     if (turningOn && !zone2WasOn && !root.zone2Linked) zone2OffGuardTimer.start()
   }
 
