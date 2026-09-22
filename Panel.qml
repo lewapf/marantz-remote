@@ -392,6 +392,7 @@ Panel {
             width: parent.width
             visible: root.isConnected && text !== ""
             text: amp.displayLines.filter(function(l) { return l.trim() !== "" }).join("  ·  ")
+            textFormat: Text.PlainText
             color: root.bar.foreground
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -551,9 +552,9 @@ Panel {
               spacing: Style.space(6)
               visible: amp.currentInput === "TUNER"
 
-              Text { width: parent.width; text: amp.tunerStation !== "" ? amp.tunerStation : (amp.tunerPreset !== "" ? "Preset " + amp.tunerPreset : "—"); color: root.bar.foreground; font.family: root.bar.fontFamily; font.pixelSize: Style.font.bodySmall; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+              Text { width: parent.width; text: amp.tunerStation !== "" ? amp.tunerStation : (amp.tunerPreset !== "" ? "Preset " + amp.tunerPreset : "—"); textFormat: Text.PlainText; color: root.bar.foreground; font.family: root.bar.fontFamily; font.pixelSize: Style.font.bodySmall; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
 
-              Text { width: parent.width; visible: amp.tunerFreq !== ""; text: amp.tunerFreq; color: root.bar.foreground; font.family: root.bar.fontFamily; font.pixelSize: Style.font.caption; horizontalAlignment: Text.AlignHCenter }
+              Text { width: parent.width; visible: amp.tunerFreq !== ""; text: amp.tunerFreq; textFormat: Text.PlainText; color: root.bar.foreground; font.family: root.bar.fontFamily; font.pixelSize: Style.font.caption; horizontalAlignment: Text.AlignHCenter }
 
               PanelSectionHeader { text: "CH / PAGE"; width: parent.width; horizontalAlignment: Text.AlignHCenter; foreground: root.bar.foreground; fontFamily: root.bar.fontFamily }
 
