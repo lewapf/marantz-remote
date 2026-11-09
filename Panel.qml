@@ -11,6 +11,9 @@ Panel {
   id: root
   moduleName: "marantz-remote"
   ipcTarget: "marantz-remote"
+  // This panel answers its IPC target itself (below) so it can expose
+  // receiver controls next to the stock open/close/toggle.
+  manageIpc: false
 
   property var settings: ({})
   function setting(name, fallback) {
@@ -20,6 +23,34 @@ Panel {
 
   Amp {
     id: amp
+    holdBackgroundRetry: root.opened
+  }
+
+  // `omarchy-shell marantz-remote <function> [args]` — e.g. bind media keys
+  // in Hyprland to volumeUp/volumeDown/toggleMute, or script inputs.
+  ShellIpc {
+    target: root.ipcTarget
+
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.toggle() }
+
+    function volumeUp(): void { amp.volumeUp() }
+    function volumeDown(): void { amp.volumeDown() }
+    // Receiver dB, e.g. "-30" or "-25.5" (0dB = reference level).
+    function setVolume(db: real): void { amp.setVolume(db + 80) }
+    function toggleMute(): void { amp.toggleMute() }
+    function mute(): void { amp.setMuted(true) }
+    function unmute(): void { amp.setMuted(false) }
+    function togglePower(): void { amp.togglePower() }
+    function powerOn(): void { amp.setPower(true) }
+    function powerOff(): void { amp.setPower(false) }
+    // Receiver input code as sent after "SI", e.g. CD, TV, GAME, NET, BT.
+    function input(code: string): void { amp.selectInput(String(code).toUpperCase()) }
+    function reconnect(): void { amp.connect(amp.ip || amp.lastIp) }
+    function status(): string { return root.statusText() }
   }
 
   readonly property bool isConnected: amp.phase === "connected"
@@ -35,12 +66,21 @@ Panel {
     }
   }
 
+  // Receiver level (0..MVMAX, 80 = reference) as a signed dB string.
+  function dbText(level) {
+    var db = level - 80
+    return (db > 0 ? "+" : "") + db.toFixed(1)
+  }
+
   function statusText() {
     switch (amp.phase) {
       case "connected":
         if (!amp.power) return "Standby"
-        var vol = amp.muted ? "Muted" : (amp.volume >= 0 ? (amp.volume - 80 > 0 ? "+" : "") + (amp.volume - 80).toFixed(1) + "dB" : "")
-        return vol || "Connected"
+        var parts = []
+        if (amp.muted) parts.push("Muted")
+        else if (amp.volume >= 0) parts.push(root.dbText(amp.volume) + "dB")
+        if (amp.currentInput) parts.push(amp.currentInput)
+        return parts.length ? parts.join(" · ") : "Connected"
       case "connecting": return "Connecting · " + amp.ip
       case "error": return amp.errorMessage || "Error"
       default: return amp.lastIp ? "Not connected" : "No receiver set up yet"
@@ -233,8 +273,17 @@ Panel {
   // there's no horizontal room for it, and whenever there's nothing
   // meaningful to show (off, muted, or not connected).
   readonly property bool showVolume: !root.bar.vertical && amp.phase === "connected" && amp.power && !amp.muted && amp.volume >= 0
-  readonly property string volumeLabel: (amp.volume - 80 > 0 ? "+" : "") + (amp.volume - 80).toFixed(1)
-  readonly property real volumeFraction: amp.volumeMax > 0 ? Math.max(0, Math.min(1, amp.volume / amp.volumeMax)) : 0
+  readonly property string volumeLabel: root.dbText(amp.volume)
+
+  // Scroll on the bar icon/readout steps volume one notch per wheel click
+  // (touchpads send many small deltas, so accumulate to a full notch).
+  property real _wheelAccum: 0
+  function handleWheel(delta) {
+    if (!root.isConnected || !amp.power) return
+    root._wheelAccum += delta
+    while (root._wheelAccum >= 120) { amp.volumeUp(); root._wheelAccum -= 120 }
+    while (root._wheelAccum <= -120) { amp.volumeDown(); root._wheelAccum += 120 }
+  }
 
   // Without this the bar's open-panel underline defaults to 55% of the
   // slot width, which was tuned for the icon alone — with the volume label
@@ -254,9 +303,13 @@ Panel {
       id: button
       bar: root.bar
       text: "󰓃"
-      tooltipText: "Marantz Remote — " + root.statusText()
+      tooltipText: "Marantz Remote — " + root.statusText() + (root.isConnected && amp.power ? "\nScroll: volume · Middle-click: mute" : "")
       active: amp.phase === "connected" && amp.power
-      onPressed: function(b) { root.toggle() }
+      onPressed: function(b) {
+        if (b === Qt.MiddleButton) { if (root.isConnected) amp.toggleMute() }
+        else root.toggle()
+      }
+      onWheelMoved: function(delta) { root.handleWheel(delta) }
     }
 
     Text {
@@ -272,7 +325,12 @@ Panel {
         anchors.fill: parent
         anchors.margins: Style.space(-4)
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.toggle()
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        onClicked: function(mouse) {
+          if (mouse.button === Qt.MiddleButton) amp.toggleMute()
+          else root.toggle()
+        }
+        onWheel: function(wheel) { root.handleWheel(wheel.angleDelta.y) }
       }
     }
 
@@ -334,7 +392,7 @@ Panel {
           // below instead of a separate stat block.
           Item {
             width: parent.width
-            implicitHeight: heroIcon.implicitHeight
+            implicitHeight: Math.max(heroIcon.implicitHeight, volumeSlider.visible ? volumeSlider.implicitHeight : 0)
 
             Text {
               id: heroIcon
@@ -357,30 +415,26 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
             }
 
-            // Volume meter, filling the space between the icon and the
-            // status text — filled by volumeFraction (amp.volume scaled
-            // against amp.volumeMax). Muted still shows the bar (dimmed)
-            // rather than hiding it.
-            Rectangle {
+            // Master volume, between the icon and the status text, on the
+            // receiver's own 0..MVMAX scale in half-dB steps. Drag or scroll
+            // to set an absolute level; right-click toggles mute. Muted keeps
+            // the slider visible, dimmed.
+            PanelSlider {
+              id: volumeSlider
               visible: root.isConnected && amp.power && amp.volume >= 0
-              height: Style.space(6)
-              radius: height / 2
-              color: Qt.darker(root.bar.foreground, 2.2)
+              bar: root.bar
+              minimum: 0
+              maximum: amp.volumeMax
+              step: 0.5
+              value: amp.volume
               opacity: amp.muted ? 0.5 : 1
               anchors.left: heroIcon.right
               anchors.leftMargin: Style.space(8)
               anchors.right: heroStatus.left
               anchors.rightMargin: Style.space(8)
               anchors.verticalCenter: parent.verticalCenter
-
-              Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                radius: parent.radius
-                width: parent.width * root.volumeFraction
-                color: root.bar.foreground
-              }
+              onMoved: function(v) { amp.setVolume(v) }
+              onRightClicked: amp.toggleMute()
             }
           }
 
@@ -419,6 +473,12 @@ Panel {
                 foreground: root.bar.foreground
                 onAccepted: root.submitIp()
                 Component.onCompleted: text = amp.lastIp
+                // last-ip loads asynchronously; fill it in once it arrives
+                // unless the user has already typed something.
+                Connections {
+                  target: amp
+                  function onLastIpChanged() { if (ipField.text === "") ipField.text = amp.lastIp }
+                }
               }
 
               Button {

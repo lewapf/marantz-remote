@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.lewapf.marantz-remote",
   "name": "Marantz Remote",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Pawel Furman",
   "license": "MIT",
   "description": "Power, volume, mute, and input select for a Denon/Marantz AV receiver over its IP control protocol.",

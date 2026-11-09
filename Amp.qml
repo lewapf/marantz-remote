@@ -80,6 +80,18 @@ Item {
   property int _retriesLeft: 0
   readonly property int _maxRetries: 3
 
+  // Set while the user is looking at the setup form (popup open) so a
+  // background reconnect attempt never yanks it out from under them.
+  property bool holdBackgroundRetry: false
+  // True only after an explicit disconnect() — background reconnects stay
+  // off until the user connects again, instead of fighting their choice.
+  property bool _userDisconnected: false
+
+  // Each connect() gets a fresh token, passed to the bash helper and echoed
+  // back on its CONNECTED/ERR_CONNECT lines, so a superseded helper that is
+  // still being torn down can't flip the new attempt's phase.
+  property int _session: 0
+
   // Whether Zone2 should follow main power. Off by default: most units
   // aren't actually wired up to a second zone, and the receiver's own
   // firmware auto-links Zone2 to main power internally regardless of what
@@ -106,6 +118,9 @@ Item {
       if (value) {
         root.lastIp = value
         root.ip = value
+        // Connect at shell start so the bar readout is live without having
+        // to open the popup first.
+        if (root.phase === "setup") root.connect(value)
       }
     }
   }
@@ -147,16 +162,20 @@ Item {
   // buffer is stuck.
   readonly property string _connectScript: [
     'CONNECT_TIMEOUT=8',
-    'IO_TIMEOUT=300',
+    '# The QML side sends a PW? heartbeat every 30s and the receiver always',
+    '# answers it, so a socket silent for this long is dead (e.g. after',
+    '# suspend, or the receiver losing power) rather than merely idle.',
+    'IO_TIMEOUT=95',
     'MAX_LINE=1024',
     'printf -v CR "\\r"',
-    'trap \'echo ERR_CONNECT; exit 1\' TERM',
+    'SESSION="$2"',
+    'trap \'echo "ERR_CONNECT $SESSION"; exit 1\' TERM',
     '( sleep "$CONNECT_TIMEOUT"; kill -TERM $$ 2>/dev/null ) &',
     'WATCHDOG=$!',
-    'exec 3<>"/dev/tcp/$1/23" || { kill $WATCHDOG 2>/dev/null; echo ERR_CONNECT; exit 1; }',
+    'exec 3<>"/dev/tcp/$1/23" || { kill $WATCHDOG 2>/dev/null; echo "ERR_CONNECT $SESSION"; exit 1; }',
     'kill $WATCHDOG 2>/dev/null',
     'trap - TERM',
-    'echo CONNECTED',
+    'echo "CONNECTED $SESSION"',
     '(',
     '  buf=""',
     '  while IFS= read -r -t "$IO_TIMEOUT" -N 1 ch <&3; do',
@@ -187,9 +206,12 @@ Item {
 
     stdout: SplitParser {
       onRead: function(line) {
-        if (line === "CONNECTED") {
+        if (line === "CONNECTED " + root._session) {
           root.phase = "connected"
           root._retriesLeft = root._maxRetries
+          root._backgroundDelayIndex = 0
+          backgroundRetryTimer.stop()
+          root._queue = []
           root.rememberIp(root.ip)
           // Ask the receiver for its current state instead of assuming
           // power-off/unmuted — another remote or the front panel may
@@ -209,14 +231,17 @@ Item {
           root.sendCmd("Z2MU?")
           root.sendCmd("NSE")
           root.sendCmd("TFAN?")
-        } else if (line === "ERR_CONNECT") {
+        } else if (line === "ERR_CONNECT " + root._session) {
           if (root._retriesLeft > 0) {
             root._retriesLeft--
             retryTimer.start()
           } else {
             root.errorMessage = "Couldn't reach " + root.ip + ":23"
             root.phase = "error"
+            root._scheduleBackgroundRetry()
           }
+        } else if (line.indexOf("CONNECTED ") === 0 || line.indexOf("ERR_CONNECT ") === 0) {
+          // Stale helper from a superseded attempt — ignore.
         } else {
           root.applyStatusLine(line)
         }
@@ -232,6 +257,7 @@ Item {
         } else {
           root.errorMessage = "Connection lost"
           root.phase = "error"
+          root._scheduleBackgroundRetry()
         }
       }
     }
@@ -241,6 +267,66 @@ Item {
     id: retryTimer
     interval: 2000
     onTriggered: root.connect(root.ip)
+  }
+
+  // After the quick retries give up, keep trying the last receiver in the
+  // background with a growing delay (receiver unplugged, laptop away from
+  // home, network down after resume) so it comes back on its own once it is
+  // reachable again — no popup visit needed.
+  readonly property var _backgroundDelays: [15000, 30000, 60000, 120000, 300000]
+  property int _backgroundDelayIndex: 0
+
+  function _scheduleBackgroundRetry() {
+    if (root._userDisconnected || !root.ip) return
+    backgroundRetryTimer.interval = root._backgroundDelays[Math.min(root._backgroundDelayIndex, root._backgroundDelays.length - 1)]
+    root._backgroundDelayIndex++
+    backgroundRetryTimer.restart()
+  }
+
+  Timer {
+    id: backgroundRetryTimer
+    onTriggered: {
+      if (root.phase !== "error" || root._userDisconnected) return
+      // Popup open on the error form: try again later rather than swapping
+      // the form for "Connecting…" while the user may be typing an IP.
+      if (root.holdBackgroundRetry) { restart(); return }
+      root.connect(root.ip)
+    }
+  }
+
+  // Heartbeat: keeps the helper's read timeout from tripping on an idle but
+  // healthy connection, and makes sure a dead one is noticed within
+  // IO_TIMEOUT instead of lingering as a frozen "connected" state.
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.phase === "connected"
+    onTriggered: root.sendCmd("PW?")
+  }
+
+  // Outgoing command queue. Denon/Marantz firmware drops commands that
+  // arrive too close together (the protocol spec asks for ~50ms spacing),
+  // which used to lose some of the burst of status queries sent right after
+  // connecting and some rapid VOL+/VOL- presses. Absolute-volume sets are
+  // coalesced: only the newest pending "MVnn" survives, so dragging the
+  // slider doesn't build up a backlog.
+  property var _queue: []
+  readonly property int _commandGapMs: 60
+
+  Timer {
+    id: queueTimer
+    interval: root._commandGapMs
+    repeat: true
+    onTriggered: {
+      if (root._queue.length === 0 || !ampProc.running || root.phase !== "connected") {
+        root._queue = []
+        stop()
+        return
+      }
+      var next = root._queue[0]
+      root._queue = root._queue.slice(1)
+      ampProc.write(next + "\n")
+    }
   }
 
   // Denon/Marantz receivers advertise themselves over SSDP/UPnP, not mDNS
@@ -411,18 +497,32 @@ Item {
   }
 
   function connect(targetIp) {
+    targetIp = String(targetIp || "").trim()
     if (!targetIp) return
+    // Only hand bash something that looks like a host name or address — it
+    // ends up in a /dev/tcp path.
+    if (!/^[A-Za-z0-9.:-]+$/.test(targetIp)) {
+      root.errorMessage = "Not a valid address: " + targetIp
+      root.phase = "error"
+      return
+    }
+    if (targetIp !== root.ip) root._backgroundDelayIndex = 0
     root.ip = targetIp
     root.errorMessage = ""
+    root._userDisconnected = false
     root.phase = "connecting"
+    root._session++
     if (ampProc.running) ampProc.running = false
-    ampProc.command = ["bash", "-c", root._connectScript, "marantz-remote", targetIp]
+    ampProc.command = ["bash", "-c", root._connectScript, "marantz-remote", targetIp, String(root._session)]
     ampProc.running = true
   }
 
   function disconnect() {
     root._retriesLeft = 0
+    root._userDisconnected = true
     retryTimer.stop()
+    backgroundRetryTimer.stop()
+    root._queue = []
     root.phase = "setup"
     if (ampProc.running) ampProc.running = false
   }
@@ -438,7 +538,14 @@ Item {
 
   function sendCmd(cmd) {
     if (!ampProc.running || root.phase !== "connected") return
-    ampProc.write(cmd + "\n")
+    var q = root._queue
+    if (/^MV\d+$/.test(cmd)) q = q.filter(function(c) { return !/^MV\d+$/.test(c) })
+    root._queue = q.concat([cmd])
+    if (!queueTimer.running) {
+      // Idle queue: send right away, then pace whatever follows.
+      queueTimer.triggered()
+      queueTimer.start()
+    }
   }
 
   // Some receivers auto-link Zone2 to main power internally (a firmware/menu
@@ -472,6 +579,25 @@ Item {
 
   function volumeUp() { sendCmd("MVUP") }
   function volumeDown() { sendCmd("MVDOWN") }
+
+  // Absolute master volume on the receiver's own 0..MVMAX scale (80 = 0dB),
+  // in half-step resolution: "MV45" = 45.0, "MV455" = 45.5. Updates the local
+  // value straight away so the slider/readout don't snap back while the
+  // receiver's echo is in flight.
+  function setVolume(level) {
+    var v = Math.round(Number(level) * 2) / 2
+    if (isNaN(v)) return
+    v = Math.max(0, Math.min(root.volumeMax, v))
+    var whole = Math.floor(v)
+    var text = (whole < 10 ? "0" : "") + whole + (v - whole >= 0.5 ? "5" : "")
+    root.volume = v
+    sendCmd("MV" + text)
+  }
+
+  function setMuted(value) { sendCmd(value ? "MUON" : "MUOFF") }
+  function setPower(value) {
+    if (value !== root.power) togglePower()
+  }
   function bassUp() { sendCmd("PSBAS UP") }
   function bassDown() { sendCmd("PSBAS DOWN") }
   function trebleUp() { sendCmd("PSTRE UP") }

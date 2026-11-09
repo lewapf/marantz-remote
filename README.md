@@ -11,7 +11,8 @@ the receiver over a plain TCP socket on your local network.
 ## Features
 
 - **Power / volume / mute** — live dB readout (receiver-reported, not a
-  guessed percentage)
+  guessed percentage), a draggable volume slider (right-click mutes), and
+  scroll-for-volume / middle-click-for-mute right on the bar icon
 - **Input select** — TV, CD, GAME, NET, PHONO, BT, TUNER
 - **Bass / treble** — ±6 dB
 - **Sound mode** — Stereo, Direct, Pure Direct
@@ -21,8 +22,15 @@ the receiver over a plain TCP socket on your local network.
   option/info) for the receiver's on-screen menu
 - **Auto-discovery** — SSDP scan finds Denon/Marantz receivers on the LAN,
   no IP typing required
-- **Remembers your receiver** — reconnects to the last IP automatically when
-  the popup opens; auto-retries a few times if the connection drops
+- **Remembers your receiver** — connects to the last IP when the shell
+  starts, so the bar readout is live without opening the popup; retries
+  quickly after a drop, then keeps retrying in the background with backoff
+  (receiver unplugged, network down after resume) until you disconnect
+- **Reliable command delivery** — commands are paced ~60ms apart, as the
+  receiver drops ones that arrive too close together; a 30s heartbeat
+  detects a dead connection within ~95s
+- **IPC / keybindings** — drive the receiver from scripts or Hyprland binds
+  (see below)
 - **Full keyboard navigation** — arrow keys / enter, plus `-`/`=` as volume
   shortcuts and Backspace to close
 
@@ -77,6 +85,29 @@ checkout, under `~/.config/marantz-remote/`, and survive a remove/reinstall.
    next time the popup opens.
 4. Use **Disconnect** at the bottom of the panel to forget the active
    session (the last IP is kept for next time).
+
+## IPC
+
+Everything goes through `omarchy-shell marantz-remote <function> [args]`:
+
+| Function | Effect |
+|---|---|
+| `toggle` / `open` / `close` | Popup |
+| `volumeUp` / `volumeDown` | One volume step |
+| `setVolume <dB>` | Absolute level, e.g. `setVolume -30` |
+| `toggleMute` / `mute` / `unmute` | Mute |
+| `togglePower` / `powerOn` / `powerOff` | Main-zone power |
+| `input <code>` | Input, e.g. `input CD`, `input TV` |
+| `reconnect` | Reconnect to the current receiver |
+| `status` | Prints the status line, e.g. `-30.5dB · CD` |
+
+Example Hyprland bindings (in `~/.config/hypr/bindings.lua`):
+
+```lua
+o.bind("SUPER + XF86AudioRaiseVolume", "Receiver volume up", "omarchy-shell marantz-remote volumeUp", { locked = true, repeating = true })
+o.bind("SUPER + XF86AudioLowerVolume", "Receiver volume down", "omarchy-shell marantz-remote volumeDown", { locked = true, repeating = true })
+o.bind("SUPER + XF86AudioMute", "Receiver mute", "omarchy-shell marantz-remote toggleMute", { locked = true })
+```
 
 ## How it works
 
